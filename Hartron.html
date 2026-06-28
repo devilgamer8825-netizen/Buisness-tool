@@ -1,0 +1,567 @@
+import { useState, useEffect, useRef } from "react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend
+} from "recharts";
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const COURSES = [
+  { id: "da",    name: "Data Analytics (DA)",   fee: 25000, duration: "6 months",  seats: 30, color: "#6C63FF" },
+  { id: "cs",    name: "Computer Science (CS)", fee: 20000, duration: "12 months", seats: 40, color: "#F59E0B" },
+  { id: "dm",    name: "Data Management",        fee: 30000, duration: "8 months",  seats: 25, color: "#10B981" },
+  { id: "basic", name: "Basic Computer",         fee: 8000,  duration: "3 months",  seats: 50, color: "#EF4444" },
+  { id: "web",   name: "Web Development",        fee: 22000, duration: "6 months",  seats: 35, color: "#3B82F6" },
+  { id: "tally", name: "Tally & Accounting",     fee: 12000, duration: "4 months",  seats: 45, color: "#EC4899" },
+];
+
+const STATUSES = ["Active", "Completed", "Cancelled", "On Hold"];
+const STATUS_COLORS = { Active: "#10B981", Completed: "#6C63FF", Cancelled: "#EF4444", "On Hold": "#F59E0B" };
+
+const INITIAL_STUDENTS = [
+  { id: "H001", name: "Rahul Sharma", phone: "9876543210", course: "da",    status: "Active",    paid: 25000, enrolled: "2024-01-15", batch: "Morning"   },
+  { id: "H002", name: "Priya Singh",  phone: "9812345678", course: "cs",    status: "Active",    paid: 10000, enrolled: "2024-02-01", batch: "Evening"   },
+  { id: "H003", name: "Amit Kumar",   phone: "9898989898", course: "dm",    status: "Completed", paid: 30000, enrolled: "2023-09-10", batch: "Morning"   },
+  { id: "H004", name: "Sneha Verma",  phone: "9711223344", course: "basic", status: "Active",    paid: 8000,  enrolled: "2024-03-05", batch: "Afternoon" },
+  { id: "H005", name: "Ravi Gupta",   phone: "9654321098", course: "web",   status: "Cancelled", paid: 5000,  enrolled: "2024-01-20", batch: "Evening"   },
+  { id: "H006", name: "Anjali Patel", phone: "9534567890", course: "tally", status: "Active",    paid: 12000, enrolled: "2024-02-28", batch: "Morning"   },
+  { id: "H007", name: "Vikram Yadav", phone: "9412345670", course: "da",    status: "On Hold",   paid: 12500, enrolled: "2024-03-01", batch: "Evening"   },
+  { id: "H008", name: "Meena Joshi",  phone: "9388776655", course: "cs",    status: "Active",    paid: 20000, enrolled: "2024-01-10", batch: "Morning"   },
+];
+
+const store = {
+  get: (k, def) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
+  set: (k, v)   => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+const fmt    = (n) => "₹" + Number(n).toLocaleString("en-IN");
+const genId  = ()  => "H" + String(Math.floor(Math.random() * 9000) + 1000);
+
+// ─── Toast ───────────────────────────────────────────────────────────────────
+const Toast = ({ msg, type, onDone }) => {
+  useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t); });
+  const bg = type === "error" ? "#EF4444" : type === "warn" ? "#F59E0B" : "#10B981";
+  return (
+    <div style={{ position:"fixed", top:24, right:24, background:bg, color:"#fff", padding:"12px 20px", borderRadius:10, fontWeight:600, fontSize:14, zIndex:9999, boxShadow:"0 4px 20px rgba(0,0,0,0.3)", display:"flex", alignItems:"center", gap:8 }}>
+      {type === "error" ? "✕" : type === "warn" ? "⚠" : "✓"} {msg}
+    </div>
+  );
+};
+
+// ─── Stat Card ───────────────────────────────────────────────────────────────
+const StatCard = ({ label, value, sub, icon, color, onClick }) => (
+  <div onClick={onClick} style={{ background:"#1E1E2E", border:`1px solid ${color}33`, borderRadius:14, padding:"20px 24px", cursor:onClick?"pointer":"default", transition:"transform .15s, box-shadow .15s", position:"relative", overflow:"hidden" }}
+    onMouseEnter={e => { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow=`0 8px 24px ${color}22`; }}
+    onMouseLeave={e => { e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow=""; }}>
+    <div style={{ position:"absolute", top:-16, right:-16, width:80, height:80, borderRadius:"50%", background:`${color}15` }} />
+    <div style={{ fontSize:28, marginBottom:6 }}>{icon}</div>
+    <div style={{ fontSize:28, fontWeight:800, color, letterSpacing:-1 }}>{value}</div>
+    <div style={{ fontSize:13, color:"#A0AEC0", marginTop:2 }}>{label}</div>
+    {sub && <div style={{ fontSize:11, color, marginTop:4, fontWeight:600 }}>{sub}</div>}
+  </div>
+);
+
+// ─── Modal ───────────────────────────────────────────────────────────────────
+const Modal = ({ title, onClose, children }) => (
+  <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
+    <div style={{ background:"#1E1E2E", borderRadius:16, width:"100%", maxWidth:520, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 24px 64px rgba(0,0,0,.6)", border:"1px solid #2D2D44" }}>
+      <div style={{ padding:"20px 24px", borderBottom:"1px solid #2D2D44", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div style={{ fontSize:17, fontWeight:700, color:"#E2E8F0" }}>{title}</div>
+        <button onClick={onClose} style={{ background:"#2D2D44", border:"none", borderRadius:8, width:32, height:32, color:"#A0AEC0", cursor:"pointer", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
+      </div>
+      <div style={{ padding:24 }}>{children}</div>
+    </div>
+  </div>
+);
+
+// ─── Student Form ─────────────────────────────────────────────────────────────
+const StudentForm = ({ initial, onSave, onClose }) => {
+  const [form, setForm] = useState(initial || { name:"", phone:"", course:"da", status:"Active", paid:"", enrolled:new Date().toISOString().split("T")[0], batch:"Morning" });
+  const [err, setErr] = useState({});
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const course = COURSES.find(c => c.id === form.course);
+
+  const validate = () => {
+    const e = {};
+    if (!form.name.trim()) e.name = "Name required";
+    if (!form.phone.match(/^\d{10}$/)) e.phone = "Enter 10-digit phone";
+    if (!form.paid || isNaN(form.paid)) e.paid = "Enter valid amount";
+    else if (Number(form.paid) > course.fee) e.paid = `Max fee is ${fmt(course.fee)}`;
+    return e;
+  };
+
+  const submit = () => {
+    const e = validate();
+    if (Object.keys(e).length) { setErr(e); return; }
+    onSave({ ...form, paid: Number(form.paid), id: initial?.id || genId() });
+  };
+
+  const inp = (label, key, type = "text", placeholder = "") => (
+    <div style={{ marginBottom:16 }}>
+      <label style={{ fontSize:12, color:"#A0AEC0", display:"block", marginBottom:6, fontWeight:600, letterSpacing:.5 }}>{label.toUpperCase()}</label>
+      <input type={type} value={form[key]} onChange={e => set(key, e.target.value)} placeholder={placeholder}
+        style={{ width:"100%", background:"#12121E", border:`1px solid ${err[key]?"#EF4444":"#2D2D44"}`, borderRadius:8, padding:"10px 12px", color:"#E2E8F0", fontSize:14, outline:"none", fontFamily:"inherit", boxSizing:"border-box" }} />
+      {err[key] && <div style={{ color:"#EF4444", fontSize:12, marginTop:4 }}>{err[key]}</div>}
+    </div>
+  );
+
+  const sel = (label, key, opts) => (
+    <div style={{ marginBottom:16 }}>
+      <label style={{ fontSize:12, color:"#A0AEC0", display:"block", marginBottom:6, fontWeight:600, letterSpacing:.5 }}>{label.toUpperCase()}</label>
+      <select value={form[key]} onChange={e => set(key, e.target.value)} style={{ width:"100%", background:"#12121E", border:"1px solid #2D2D44", borderRadius:8, padding:"10px 12px", color:"#E2E8F0", fontSize:14, outline:"none", fontFamily:"inherit", cursor:"pointer" }}>
+        {opts.map(o => <option key={o.v||o} value={o.v||o}>{o.l||o}</option>)}
+      </select>
+    </div>
+  );
+
+  return (
+    <div>
+      {inp("Full Name", "name", "text", "e.g. Rahul Sharma")}
+      {inp("Phone Number", "phone", "tel", "10-digit number")}
+      {sel("Course", "course", COURSES.map(c => ({ v:c.id, l:`${c.name} — ${fmt(c.fee)}` })))}
+      <div style={{ background:"#12121E", borderRadius:8, padding:"10px 14px", marginBottom:16, fontSize:13, color:"#A0AEC0", borderLeft:`3px solid ${course.color}` }}>
+        Duration: <b style={{ color:"#E2E8F0" }}>{course.duration}</b> &nbsp;|&nbsp; Fee: <b style={{ color:course.color }}>{fmt(course.fee)}</b> &nbsp;|&nbsp; Seats: <b style={{ color:"#E2E8F0" }}>{course.seats}</b>
+      </div>
+      {inp("Amount Paid (₹)", "paid", "number", `Max ${fmt(course.fee)}`)}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+        {sel("Batch", "batch", ["Morning","Afternoon","Evening"])}
+        {sel("Status", "status", STATUSES)}
+      </div>
+      {inp("Enrollment Date", "enrolled", "date")}
+      <div style={{ display:"flex", gap:10, marginTop:8 }}>
+        <button onClick={onClose} style={{ flex:1, background:"#2D2D44", border:"none", borderRadius:8, padding:12, color:"#A0AEC0", fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+        <button onClick={submit} style={{ flex:2, background:"linear-gradient(135deg,#6C63FF,#9B59B6)", border:"none", borderRadius:8, padding:12, color:"#fff", fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>
+          {initial ? "Save Changes" : "Enroll Student"}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── WhatsApp Support ─────────────────────────────────────────────────────────
+const WhatsAppSupport = ({ onClose }) => {
+  const [msg, setMsg] = useState("");
+  const number = "919876543210";
+  const templates = [
+    "Hello! I want to know about course fees and admission process.",
+    "I need help with my student ID and enrollment details.",
+    "Can you share the course schedule and batch timings?",
+    "I want to enquire about Data Analytics course.",
+    "Please share details about placement support.",
+  ];
+  const send = (text) => {
+    const t = encodeURIComponent(text || msg);
+    window.open(`https://wa.me/${number}?text=${t}`, "_blank");
+  };
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ background:"#075E54", borderRadius:12, padding:16, display:"flex", alignItems:"center", gap:12 }}>
+        <div style={{ fontSize:36 }}>📱</div>
+        <div>
+          <div style={{ color:"#fff", fontWeight:700, fontSize:15 }}>Hartron Support</div>
+          <div style={{ color:"#dcf8c6", fontSize:13 }}>+91 98765 43210 · Typically replies in minutes</div>
+        </div>
+      </div>
+      <div style={{ fontSize:12, color:"#A0AEC0", fontWeight:600, letterSpacing:.5 }}>QUICK MESSAGE TEMPLATES</div>
+      {templates.map((t, i) => (
+        <div key={i} onClick={() => send(t)} style={{ background:"#12121E", border:"1px solid #2D2D44", borderRadius:10, padding:"10px 14px", cursor:"pointer", fontSize:13, color:"#E2E8F0", display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, transition:"border-color .15s" }}
+          onMouseEnter={e => e.currentTarget.style.borderColor="#25D366"}
+          onMouseLeave={e => e.currentTarget.style.borderColor="#2D2D44"}>
+          <span>{t}</span><span style={{ color:"#25D366", flexShrink:0 }}>➤</span>
+        </div>
+      ))}
+      <div style={{ fontSize:12, color:"#A0AEC0", fontWeight:600, letterSpacing:.5 }}>CUSTOM MESSAGE</div>
+      <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Type your message…" rows={3}
+        style={{ background:"#12121E", border:"1px solid #2D2D44", borderRadius:10, padding:12, color:"#E2E8F0", fontSize:14, outline:"none", resize:"none", fontFamily:"inherit" }} />
+      <button onClick={() => send()} disabled={!msg.trim()} style={{ background:"#25D366", border:"none", borderRadius:10, padding:"12px", color:"#fff", fontWeight:700, fontSize:15, cursor:msg.trim()?"pointer":"not-allowed", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:msg.trim()?1:.5 }}>
+        💬 Chat on WhatsApp
+      </button>
+    </div>
+  );
+};
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+export default function HartronApp() {
+  const [students, setStudents]   = useState(() => store.get("hartron_students", INITIAL_STUDENTS));
+  const [page, setPage]           = useState("dashboard");
+  const [modal, setModal]         = useState(null);
+  const [selected, setSelected]   = useState(null);
+  const [toast, setToast]         = useState(null);
+  const [filter, setFilter]       = useState({ course:"", status:"", search:"" });
+  const [confirmDel, setConfirmDel] = useState(null);
+
+  useEffect(() => { store.set("hartron_students", students); }, [students]);
+
+  const notify     = (msg, type = "success") => setToast({ msg, type });
+  const addStudent = (s) => { setStudents(p => [...p, s]); notify(`${s.name} enrolled successfully!`); setModal(null); };
+  const editStudent= (s) => { setStudents(p => p.map(x => x.id===s.id ? s : x)); notify("Student updated!"); setModal(null); };
+  const deleteStudent = (id) => {
+    const s = students.find(x => x.id===id);
+    setStudents(p => p.filter(x => x.id!==id));
+    notify(`${s.name} removed.`, "warn");
+    setConfirmDel(null); setModal(null); setSelected(null);
+  };
+  const cancelStudent = (id) => {
+    setStudents(p => p.map(x => x.id===id ? { ...x, status:"Cancelled" } : x));
+    notify("Enrollment cancelled.", "warn");
+  };
+
+  // Stats
+  const total     = students.length;
+  const active    = students.filter(s => s.status==="Active").length;
+  const cancelled = students.filter(s => s.status==="Cancelled").length;
+  const revenue   = students.reduce((a, s) => a + s.paid, 0);
+
+  // Chart data
+  const feeBar    = COURSES.map(c => ({ name:c.name.split("(")[0].trim().split(" ").slice(0,2).join(" "), fee:c.fee, enrolled:students.filter(s=>s.course===c.id).length, color:c.color }));
+  const statusPie = STATUSES.map(s => ({ name:s, value:students.filter(x=>x.status===s).length, color:STATUS_COLORS[s] })).filter(x=>x.value>0);
+  const revenueBar= COURSES.map(c => ({ name:c.name.split("(")[0].trim().split(" ").slice(0,2).join(" "), collected:students.filter(s=>s.course===c.id).reduce((a,s)=>a+s.paid,0), potential:students.filter(s=>s.course===c.id).length*c.fee }));
+
+  // Filtered students
+  const filtered  = students.filter(s => {
+    const q = filter.search.toLowerCase();
+    return (!q || s.name.toLowerCase().includes(q) || s.phone.includes(q) || s.id.toLowerCase().includes(q))
+        && (!filter.course || s.course===filter.course)
+        && (!filter.status || s.status===filter.status);
+  });
+
+  const navBtn = (id, icon, label) => (
+    <button key={id} onClick={() => setPage(id)} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"11px 16px", background:page===id?"linear-gradient(135deg,#6C63FF22,#9B59B622)":"transparent", border:`1px solid ${page===id?"#6C63FF55":"transparent"}`, borderRadius:10, color:page===id?"#A78BFA":"#718096", fontSize:14, fontWeight:page===id?700:400, cursor:"pointer", fontFamily:"inherit", textAlign:"left", transition:"all .15s" }}>
+      <span style={{ fontSize:18 }}>{icon}</span>{label}
+    </button>
+  );
+
+  const badge = (status) => (
+    <span style={{ background:`${STATUS_COLORS[status]}22`, color:STATUS_COLORS[status], fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20, border:`1px solid ${STATUS_COLORS[status]}55` }}>{status}</span>
+  );
+
+  return (
+    <div style={{ display:"flex", height:"100vh", background:"#12121E", fontFamily:"'Segoe UI', system-ui, sans-serif", color:"#E2E8F0", overflow:"hidden" }}>
+      <style>{`
+        *{box-sizing:border-box}
+        ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:#2D2D44;border-radius:4px}
+        input::placeholder,textarea::placeholder{color:#4A5568}
+        select option{background:#1E1E2E}
+        @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+      `}</style>
+
+      {/* Sidebar */}
+      <div style={{ width:220, background:"#1E1E2E", display:"flex", flexDirection:"column", padding:"20px 12px", borderRight:"1px solid #2D2D44", flexShrink:0 }}>
+        <div style={{ padding:"0 4px 24px" }}>
+          <div style={{ fontSize:22, fontWeight:900, background:"linear-gradient(135deg,#6C63FF,#EC4899)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", letterSpacing:-1 }}>HARTRON</div>
+          <div style={{ fontSize:10, color:"#4A5568", letterSpacing:2, marginTop:2, WebkitTextFillColor:"#4A5568" }}>INSTITUTE PORTAL</div>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:4, flex:1 }}>
+          {[["dashboard","⊞","Dashboard"],["students","👥","Students"],["courses","📚","Courses"],["reports","📊","Reports"]].map(([id,icon,label]) => navBtn(id,icon,label))}
+        </div>
+        <div style={{ borderTop:"1px solid #2D2D44", paddingTop:12, display:"flex", flexDirection:"column", gap:4 }}>
+          <button onClick={() => setModal("whatsapp")} style={{ display:"flex", alignItems:"center", gap:10, width:"100%", padding:"11px 16px", background:"#075E5422", border:"1px solid #25D36644", borderRadius:10, color:"#25D366", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+            <span style={{ fontSize:18 }}>💬</span> WhatsApp Support
+          </button>
+          <div style={{ padding:"10px 16px 0", fontSize:11, color:"#4A5568" }}>Hartron Inst. © 2024</div>
+        </div>
+      </div>
+
+      {/* Main */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        {/* Topbar */}
+        <div style={{ background:"#1E1E2E", borderBottom:"1px solid #2D2D44", padding:"14px 28px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div>
+            <div style={{ fontSize:18, fontWeight:700 }}>
+              {page==="dashboard"&&"Dashboard Overview"}{page==="students"&&"Student Management"}{page==="courses"&&"Course Catalogue"}{page==="reports"&&"Analytics & Reports"}
+            </div>
+            <div style={{ fontSize:12, color:"#4A5568", marginTop:2 }}>{new Date().toLocaleDateString("en-IN",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+          </div>
+          {page==="students" && (
+            <button onClick={() => { setSelected(null); setModal("add"); }} style={{ background:"linear-gradient(135deg,#6C63FF,#9B59B6)", border:"none", borderRadius:10, padding:"10px 20px", color:"#fff", fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>
+              ＋ Enroll Student
+            </button>
+          )}
+        </div>
+
+        {/* Page content */}
+        <div style={{ flex:1, overflowY:"auto", padding:28, animation:"fadeIn .3s" }}>
+
+          {/* DASHBOARD */}
+          {page==="dashboard" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16 }}>
+                <StatCard icon="👥" label="Total Students"    value={total}       sub={`${active} active`}      color="#6C63FF" onClick={() => setPage("students")} />
+                <StatCard icon="✅" label="Active Enrolments" value={active}      sub="Currently studying"      color="#10B981" />
+                <StatCard icon="❌" label="Cancellations"     value={cancelled}   sub="This session"            color="#EF4444" />
+                <StatCard icon="₹"  label="Revenue Collected" value={fmt(revenue)} sub="Total fees paid"        color="#F59E0B" />
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1.6fr 1fr", gap:16 }}>
+                <div style={{ background:"#1E1E2E", borderRadius:14, padding:20, border:"1px solid #2D2D44" }}>
+                  <div style={{ fontSize:14, fontWeight:700, marginBottom:16, color:"#A78BFA" }}>📊 Course Fee Structure</div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={feeBar} barSize={28}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#2D2D44" />
+                      <XAxis dataKey="name" tick={{ fill:"#718096", fontSize:11 }} />
+                      <YAxis tick={{ fill:"#718096", fontSize:11 }} tickFormatter={v=>`₹${v/1000}k`} />
+                      <Tooltip formatter={v=>fmt(v)} contentStyle={{ background:"#12121E", border:"1px solid #2D2D44", borderRadius:8, color:"#E2E8F0" }} />
+                      <Bar dataKey="fee" name="Course Fee" radius={[6,6,0,0]}>
+                        {feeBar.map((e,i) => <Cell key={i} fill={e.color} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ background:"#1E1E2E", borderRadius:14, padding:20, border:"1px solid #2D2D44" }}>
+                  <div style={{ fontSize:14, fontWeight:700, marginBottom:16, color:"#A78BFA" }}>🎯 Enrolment Status</div>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie data={statusPie} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
+                        {statusPie.map((e,i) => <Cell key={i} fill={e.color} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ background:"#12121E", border:"1px solid #2D2D44", borderRadius:8, color:"#E2E8F0" }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginTop:8, justifyContent:"center" }}>
+                    {statusPie.map(s => (
+                      <div key={s.name} style={{ display:"flex", alignItems:"center", gap:6, fontSize:12 }}>
+                        <div style={{ width:10, height:10, borderRadius:2, background:s.color }} />
+                        <span style={{ color:"#A0AEC0" }}>{s.name}: <b style={{ color:"#E2E8F0" }}>{s.value}</b></span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div style={{ background:"#1E1E2E", borderRadius:14, padding:20, border:"1px solid #2D2D44" }}>
+                <div style={{ fontSize:14, fontWeight:700, marginBottom:16, color:"#A78BFA" }}>💰 Revenue vs Potential — Per Course</div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={revenueBar} barSize={22}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2D2D44" />
+                    <XAxis dataKey="name" tick={{ fill:"#718096", fontSize:11 }} />
+                    <YAxis tick={{ fill:"#718096", fontSize:11 }} tickFormatter={v=>`₹${v/1000}k`} />
+                    <Tooltip formatter={v=>fmt(v)} contentStyle={{ background:"#12121E", border:"1px solid #2D2D44", borderRadius:8, color:"#E2E8F0" }} />
+                    <Legend wrapperStyle={{ fontSize:12, color:"#718096" }} />
+                    <Bar dataKey="potential" name="Potential Revenue" fill="#2D2D44" radius={[4,4,0,0]} />
+                    <Bar dataKey="collected" name="Collected"         fill="#6C63FF" radius={[4,4,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{ background:"#1E1E2E", borderRadius:14, padding:20, border:"1px solid #2D2D44" }}>
+                <div style={{ fontSize:14, fontWeight:700, marginBottom:16, color:"#A78BFA", display:"flex", justifyContent:"space-between" }}>
+                  <span>🕐 Recent Enrolments</span>
+                  <button onClick={() => setPage("students")} style={{ background:"none", border:"none", color:"#6C63FF", cursor:"pointer", fontSize:13, fontFamily:"inherit" }}>View all →</button>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {[...students].sort((a,b)=>new Date(b.enrolled)-new Date(a.enrolled)).slice(0,5).map(s => {
+                    const c = COURSES.find(x=>x.id===s.course);
+                    return (
+                      <div key={s.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"10px 14px", background:"#12121E", borderRadius:10 }}>
+                        <div style={{ width:36, height:36, borderRadius:"50%", background:c.color+"33", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{s.name[0]}</div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:14, fontWeight:600 }}>{s.name}</div>
+                          <div style={{ fontSize:12, color:"#718096" }}>{c.name} · {s.batch} batch</div>
+                        </div>
+                        {badge(s.status)}
+                        <div style={{ fontSize:13, fontWeight:700, color:"#F59E0B" }}>{fmt(s.paid)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STUDENTS */}
+          {page==="students" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+              <div style={{ background:"#1E1E2E", borderRadius:12, padding:16, border:"1px solid #2D2D44", display:"flex", gap:12, flexWrap:"wrap" }}>
+                <input value={filter.search} onChange={e=>setFilter(p=>({...p,search:e.target.value}))} placeholder="🔍 Search name, phone, ID…"
+                  style={{ flex:1, minWidth:200, background:"#12121E", border:"1px solid #2D2D44", borderRadius:8, padding:"9px 14px", color:"#E2E8F0", fontSize:14, outline:"none", fontFamily:"inherit" }} />
+                <select value={filter.course} onChange={e=>setFilter(p=>({...p,course:e.target.value}))} style={{ background:"#12121E", border:"1px solid #2D2D44", borderRadius:8, padding:"9px 14px", color:filter.course?"#E2E8F0":"#718096", fontSize:14, outline:"none", cursor:"pointer" }}>
+                  <option value="">All Courses</option>
+                  {COURSES.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <select value={filter.status} onChange={e=>setFilter(p=>({...p,status:e.target.value}))} style={{ background:"#12121E", border:"1px solid #2D2D44", borderRadius:8, padding:"9px 14px", color:filter.status?"#E2E8F0":"#718096", fontSize:14, outline:"none", cursor:"pointer" }}>
+                  <option value="">All Statuses</option>
+                  {STATUSES.map(s=><option key={s}>{s}</option>)}
+                </select>
+                {(filter.search||filter.course||filter.status) && (
+                  <button onClick={()=>setFilter({course:"",status:"",search:""})} style={{ background:"#EF444422", border:"1px solid #EF444444", borderRadius:8, padding:"9px 14px", color:"#EF4444", fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Clear filters</button>
+                )}
+              </div>
+              <div style={{ fontSize:13, color:"#718096" }}>Showing <b style={{ color:"#E2E8F0" }}>{filtered.length}</b> of {students.length} students</div>
+              <div style={{ background:"#1E1E2E", borderRadius:14, border:"1px solid #2D2D44", overflow:"hidden" }}>
+                <div style={{ display:"grid", gridTemplateColumns:"80px 1.4fr 1fr 1.2fr 90px 90px 90px 110px", padding:"12px 16px", background:"#12121E", fontSize:11, color:"#4A5568", fontWeight:700, letterSpacing:.6 }}>
+                  {["ID","NAME","PHONE","COURSE","BATCH","PAID","STATUS","ACTIONS"].map(h=><div key={h}>{h}</div>)}
+                </div>
+                {filtered.length===0 ? (
+                  <div style={{ padding:40, textAlign:"center", color:"#718096" }}>
+                    <div style={{ fontSize:36, marginBottom:12 }}>🔍</div>
+                    <div>No students match your search.</div>
+                  </div>
+                ) : filtered.map((s,idx) => {
+                  const c = COURSES.find(x=>x.id===s.course);
+                  return (
+                    <div key={s.id} style={{ display:"grid", gridTemplateColumns:"80px 1.4fr 1fr 1.2fr 90px 90px 90px 110px", padding:"12px 16px", borderTop:"1px solid #2D2D44", fontSize:13, alignItems:"center", background:idx%2===0?"transparent":"#ffffff04", transition:"background .1s" }}
+                      onMouseEnter={e=>e.currentTarget.style.background="#6C63FF08"}
+                      onMouseLeave={e=>e.currentTarget.style.background=idx%2===0?"transparent":"#ffffff04"}>
+                      <div style={{ color:"#6C63FF", fontWeight:700, fontSize:12 }}>{s.id}</div>
+                      <div style={{ fontWeight:600 }}>{s.name}</div>
+                      <div style={{ color:"#A0AEC0" }}>{s.phone}</div>
+                      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                        <div style={{ width:8, height:8, borderRadius:"50%", background:c.color, flexShrink:0 }} />
+                        <span style={{ color:"#A0AEC0", fontSize:12 }}>{c.name.split("(")[0].trim()}</span>
+                      </div>
+                      <div style={{ color:"#718096", fontSize:12 }}>{s.batch}</div>
+                      <div style={{ color:"#F59E0B", fontWeight:700 }}>{fmt(s.paid)}</div>
+                      <div>{badge(s.status)}</div>
+                      <div style={{ display:"flex", gap:6 }}>
+                        <button onClick={()=>{ setSelected(s); setModal("edit"); }} title="Edit"   style={{ background:"#6C63FF22", border:"1px solid #6C63FF44", borderRadius:6, padding:"5px 8px", color:"#A78BFA", cursor:"pointer", fontSize:12 }}>✏️</button>
+                        {s.status!=="Cancelled" && <button onClick={()=>cancelStudent(s.id)} title="Cancel" style={{ background:"#F59E0B22", border:"1px solid #F59E0B44", borderRadius:6, padding:"5px 8px", color:"#F59E0B", cursor:"pointer", fontSize:12 }}>🚫</button>}
+                        <button onClick={()=>setConfirmDel(s)} title="Delete" style={{ background:"#EF444422", border:"1px solid #EF444444", borderRadius:6, padding:"5px 8px", color:"#EF4444", cursor:"pointer", fontSize:12 }}>🗑</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* COURSES */}
+          {page==="courses" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
+                {COURSES.map(c => {
+                  const enrolled = students.filter(s=>s.course===c.id);
+                  const act      = enrolled.filter(s=>s.status==="Active").length;
+                  const rev      = enrolled.reduce((a,s)=>a+s.paid,0);
+                  const fill     = Math.round((enrolled.length/c.seats)*100);
+                  return (
+                    <div key={c.id} style={{ background:"#1E1E2E", border:`1px solid ${c.color}44`, borderRadius:14, padding:20, position:"relative", overflow:"hidden" }}>
+                      <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:c.color }} />
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+                        <div style={{ fontSize:15, fontWeight:800, color:"#E2E8F0", lineHeight:1.3 }}>{c.name}</div>
+                        <div style={{ fontSize:22, fontWeight:900, color:c.color }}>{fmt(c.fee)}</div>
+                      </div>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14, fontSize:13 }}>
+                        {[["Duration",c.duration],["Total Seats",c.seats],["Enrolled",enrolled.length],["Active",act]].map(([l,v])=>(
+                          <div key={l} style={{ background:"#12121E", borderRadius:8, padding:"8px 10px" }}>
+                            <div style={{ color:"#4A5568", fontSize:11, marginBottom:2 }}>{l}</div>
+                            <div style={{ fontWeight:700, color:"#E2E8F0" }}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ marginBottom:10 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"#718096", marginBottom:6 }}>
+                          <span>Seat fill rate</span><span style={{ color:c.color, fontWeight:700 }}>{fill}%</span>
+                        </div>
+                        <div style={{ background:"#2D2D44", borderRadius:4, height:6 }}>
+                          <div style={{ width:`${Math.min(fill,100)}%`, height:"100%", background:c.color, borderRadius:4, transition:"width .5s" }} />
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, paddingTop:10, borderTop:"1px solid #2D2D44" }}>
+                        <span style={{ color:"#718096" }}>Revenue collected</span>
+                        <span style={{ fontWeight:700, color:"#F59E0B" }}>{fmt(rev)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ background:"#1E1E2E", borderRadius:14, padding:20, border:"1px solid #2D2D44" }}>
+                <div style={{ fontSize:14, fontWeight:700, marginBottom:16, color:"#A78BFA" }}>📊 Enrolment per Course</div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={feeBar} barSize={32}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2D2D44" />
+                    <XAxis dataKey="name" tick={{ fill:"#718096", fontSize:11 }} />
+                    <YAxis tick={{ fill:"#718096", fontSize:11 }} allowDecimals={false} />
+                    <Tooltip contentStyle={{ background:"#12121E", border:"1px solid #2D2D44", borderRadius:8, color:"#E2E8F0" }} />
+                    <Bar dataKey="enrolled" name="Students Enrolled" radius={[6,6,0,0]}>
+                      {feeBar.map((e,i)=><Cell key={i} fill={e.color} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* REPORTS */}
+          {page==="reports" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
+                <StatCard icon="💰" label="Total Collected"   value={fmt(revenue)} color="#10B981" />
+                <StatCard icon="📈" label="Potential Revenue" value={fmt(COURSES.reduce((a,c)=>a+c.fee*students.filter(s=>s.course===c.id).length,0))} color="#6C63FF" />
+                <StatCard icon="⚡" label="Collection Rate"   value={Math.round(revenue/Math.max(1,COURSES.reduce((a,c)=>a+c.fee*students.filter(s=>s.course===c.id).length,0))*100)+"%"} color="#F59E0B" />
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+                <div style={{ background:"#1E1E2E", borderRadius:14, padding:20, border:"1px solid #2D2D44" }}>
+                  <div style={{ fontSize:14, fontWeight:700, marginBottom:16, color:"#A78BFA" }}>🥧 Status Distribution</div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie data={statusPie} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({name,percent})=>`${name} ${(percent*100).toFixed(0)}%`} labelLine={{ stroke:"#2D2D44" }}>
+                        {statusPie.map((e,i)=><Cell key={i} fill={e.color} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ background:"#12121E", border:"1px solid #2D2D44", borderRadius:8, color:"#E2E8F0" }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ background:"#1E1E2E", borderRadius:14, padding:20, border:"1px solid #2D2D44" }}>
+                  <div style={{ fontSize:14, fontWeight:700, marginBottom:16, color:"#A78BFA" }}>🏦 Fee Collection Summary</div>
+                  {COURSES.map(c=>{
+                    const cs  = students.filter(s=>s.course===c.id);
+                    const col = cs.reduce((a,s)=>a+s.paid,0);
+                    const pot = cs.length*c.fee;
+                    const pct = pot?Math.round(col/pot*100):0;
+                    return (
+                      <div key={c.id} style={{ marginBottom:14 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                          <span style={{ color:"#A0AEC0" }}>{c.name.split("(")[0].trim()}</span>
+                          <span style={{ color:c.color, fontWeight:700 }}>{fmt(col)} / {fmt(pot)}</span>
+                        </div>
+                        <div style={{ background:"#2D2D44", borderRadius:4, height:8 }}>
+                          <div style={{ width:`${pct}%`, height:"100%", background:c.color, borderRadius:4 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{ background:"#1E1E2E", borderRadius:14, padding:20, border:"1px solid #2D2D44" }}>
+                <div style={{ fontSize:14, fontWeight:700, marginBottom:16, color:"#A78BFA" }}>🕐 Batch-wise Enrolment</div>
+                <div style={{ display:"flex", gap:12 }}>
+                  {["Morning","Afternoon","Evening"].map(batch=>{
+                    const count  = students.filter(s=>s.batch===batch).length;
+                    const colors = { Morning:"#F59E0B", Afternoon:"#10B981", Evening:"#6C63FF" };
+                    return (
+                      <div key={batch} style={{ flex:1, background:"#12121E", borderRadius:10, padding:16, textAlign:"center", border:`1px solid ${colors[batch]}33` }}>
+                        <div style={{ fontSize:28, fontWeight:800, color:colors[batch] }}>{count}</div>
+                        <div style={{ fontSize:13, color:"#718096", marginTop:4 }}>{batch} Batch</div>
+                        <div style={{ fontSize:11, color:"#4A5568", marginTop:2 }}>{Math.round(count/Math.max(students.length,1)*100)}% of total</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modals */}
+      {modal==="add" && <Modal title="Enroll New Student" onClose={()=>setModal(null)}><StudentForm onSave={addStudent} onClose={()=>setModal(null)} /></Modal>}
+      {modal==="edit" && selected && <Modal title={`Edit — ${selected.name}`} onClose={()=>setModal(null)}><StudentForm initial={selected} onSave={editStudent} onClose={()=>setModal(null)} /></Modal>}
+      {modal==="whatsapp" && <Modal title="💬 WhatsApp Support" onClose={()=>setModal(null)}><WhatsAppSupport onClose={()=>setModal(null)} /></Modal>}
+
+      {/* Confirm delete */}
+      {confirmDel && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
+          <div style={{ background:"#1E1E2E", borderRadius:14, padding:28, width:340, border:"1px solid #EF444455", boxShadow:"0 12px 40px rgba(239,68,68,.2)" }}>
+            <div style={{ fontSize:36, textAlign:"center", marginBottom:12 }}>⚠️</div>
+            <div style={{ fontSize:16, fontWeight:700, textAlign:"center", marginBottom:6 }}>Delete Student?</div>
+            <div style={{ fontSize:13, color:"#718096", textAlign:"center", marginBottom:20 }}>
+              Remove <b style={{ color:"#E2E8F0" }}>{confirmDel.name}</b> ({confirmDel.id}) permanently?
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>setConfirmDel(null)} style={{ flex:1, background:"#2D2D44", border:"none", borderRadius:8, padding:11, color:"#A0AEC0", cursor:"pointer", fontFamily:"inherit", fontSize:14 }}>Keep</button>
+              <button onClick={()=>deleteStudent(confirmDel.id)} style={{ flex:1, background:"#EF4444", border:"none", borderRadius:8, padding:11, color:"#fff", fontWeight:700, cursor:"pointer", fontFamily:"inherit", fontSize:14 }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && <Toast {...toast} onDone={()=>setToast(null)} />}
+    </div>
+  );
+}
